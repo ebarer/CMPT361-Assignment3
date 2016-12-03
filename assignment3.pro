@@ -14,7 +14,6 @@ TEMPLATE = app
 
 SOURCES += main.cpp \
     application/client.cpp \
-    application/tests.cpp \
     base/renderarea361.cpp \
     base/window361.cpp \
     primitives/octant.cpp \
@@ -22,10 +21,10 @@ SOURCES += main.cpp \
     renderers/line_renderer_dda.cpp \
     renderers/polygon_renderer.cpp \
     application/simp_reader.cpp \
+    shaders/lighting_model.cpp
 
 HEADERS  += \
     application/client.h \
-    application/tests.h \
     base/drawable.h \
     base/pageturner.h \
     base/renderarea361.h \
@@ -37,3 +36,5 @@ HEADERS  += \
     renderers/line_renderer_dda.h \
     renderers/polygon_renderer.h \
     application/simp_reader.h \
+    shaders/shade_basics.h \
+    shaders/lighting_model.h

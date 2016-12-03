@@ -13,51 +13,95 @@
 #include "base/drawable.h"
 #include "primitives/pane.h"
 #include "primitives/gfx_basics.h"
-#include "renderers/line_renderer.h"
+#include "shaders/shade_basics.h"
+#include "shaders/lighting_model.h"
+#include "renderers/line_renderer_dda.h"
 #include "renderers/polygon_renderer.h"
 
 using namespace std;
 
+enum RenderingStyle {
+    Phong,
+    Gouraud,
+    Flat
+};
+
 class SimpReader
 {
 public:
+    bool camera = false;
+    bool normalAveraging = false;
+    bool wireframe = false;
+    RenderingStyle style = Phong;
+    ZBuffer buffer;
+    Surface surface = Surface();
+    Ambient ambient = Ambient();
+    QVector<Light> lights = QVector<Light>();
+
     SimpReader() {}
     ~SimpReader() {}
 
-    void readFile(QString fileName, Drawable* drawable);
-
-    // ACCESSORS
-    void setColors(uint color1, uint color2) { colorNear = color1; colorFar = color2; }
+    void readFile(QString fileName, Pane* drawable);
 
 private:
     QString::const_iterator iter;
-    QMatrix4x4 ctm;
+    QMatrix4x4 ctm;     // Object Space -> World Space
+    QMatrix4x4 cam;     // World Space -> Camera Space
+    QMatrix4x4 proj;    // Camera Space -> Projected Space
+    QMatrix4x4 stm;     // Projected Space -> Screen Space
     QStack<QMatrix4x4> ctmStack;
-    bool wireframe = false;
-    uint colorNear = 0xffffffff;
-    uint colorFar = 0xff000000;
+
+    // CAMERA + LIGHTING
+    bool parseCamera(Pane* drawable);
+    void parseLight();
 
     // TRANSFORMATIONS
     void parseRotate();
     void parseScale();
     void parseTranslate();
 
-    // PRIMITIVES    
-    void parseLine(Drawable* drawable);
-    void parsePolygon(Drawable* drawable);
-    void parseMesh(Drawable* drawable);
+    // PRIMITIVES
+    Point parsePoint();
+    void parseLine(Pane* drawable);
+    void parsePolygon(Pane* drawable);
+    void parseMesh(Pane* drawable);
+
+    // SHADERS
+    void parsePhong();
+    void parseGouraud();
+    void parseFlat();
+
+    // RENDER ATTRIBUTES
+    void parseSurface();
+    void parseAmbient();
 
     // PARSERS
-    void parseIdentifier();
+    QString parseToken();
     float parseDigit();
-    QVector4D parsePoint();
-    QVector4D parseMeshPoint();
     QString parseFilename();
 
     // HELPER
+    char next();
     void expect(char c);
     void readWhitespace();
     void readSeparator();
+
+    // PRINT HELPERS
+    void printVector(QVector3D v) {
+        cout << v.x() << "\t";
+        cout << v.y() << "\t";
+        cout << v.z() << endl;
+    }
+    void printMatrix(QMatrix4x4 m) {
+        cout << endl;
+        for (int i = 0; i < 4; i++) {
+            cout << m.row(i).x() << "\t";
+            cout << m.row(i).y() << "\t";
+            cout << m.row(i).z() << "\t";
+            cout << m.row(i).w() << endl;
+        }
+        cout << endl;
+    }
 };
 
 #endif // SIMP_READER_H

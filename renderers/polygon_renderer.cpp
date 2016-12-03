@@ -1,26 +1,27 @@
 #include "polygon_renderer.h"
+#include "application/simp_reader.h"
 
 using namespace std;
 
 PolygonRenderer::PolygonRenderer() {}
 
-void PolygonRenderer::draw_polygon(Polygon p, Drawable* drawable, bool wireframe) {
-    if (wireframe) {
-        draw_wireframe(p, drawable);
+void PolygonRenderer::draw_polygon(Polygon p, Drawable* drawable, SimpReader* simp) {
+    if (simp->wireframe) {
+        draw_wireframe(p, drawable, simp);
     } else {
-        draw_shaded(p, drawable);
+        draw_shaded(p, drawable, simp);
     }
 }
 
-void PolygonRenderer::draw_wireframe(Polygon p, Drawable* drawable) {
+void PolygonRenderer::draw_wireframe(Polygon p, Drawable* drawable, SimpReader* simp) {
     Line l1 = Line(p.p1, p.p2);
     Line l2 = Line(p.p1, p.p3);
     Line l3 = Line(p.p2, p.p3);
 
     LineRendererDDA rdr = LineRendererDDA();
-    rdr.draw_line(l1, drawable);
-    rdr.draw_line(l2, drawable);
-    rdr.draw_line(l3, drawable);
+    rdr.draw_line(l1, drawable, simp);
+    rdr.draw_line(l2, drawable, simp);
+    rdr.draw_line(l3, drawable, simp);
 }
 
 QVector<int> lerpColor(QVector<int> c_1, QVector<int> c_2, int x, int x1, int x2) {
@@ -45,7 +46,14 @@ QVector<int> lerpColor(QVector<int> c_1, QVector<int> c_2, int x, int x1, int x2
     return channels;
 }
 
-void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable) {
+float lerpZ(float z_1, float z_2, int x, int x1, int x2) {
+    int dx = x2-x1;
+    if (dx == 0) { return z_1; }
+    float q = (((float)x)/dx) + (-((float)x1)/dx);
+    return z_1 + ((z_2 - z_1) * q);
+}
+
+void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable, SimpReader* simp) {
     Line* lines[3];
     lines[0] = new Line(p.p1, p.p2);
     lines[1] = new Line(p.p1, p.p3);
@@ -68,6 +76,7 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable) {
 
             if (lines[maxLine]->slope() != 0) {
                 x1 = round((y - lines[maxLine]->intercept())/lines[maxLine]->slope());
+
             }
 
             int x2 = lines[i]->p1.getX();
@@ -77,6 +86,8 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable) {
 
             QVector<int> c1 = lines[maxLine]->lerpColor(x1, y);
             QVector<int> c2 = lines[i]->lerpColor(x2, y);
+            float z1 = lines[maxLine]->lerpZ(x1, y);
+            float z2 = lines[maxLine]->lerpZ(x2, y);
 
             if (x1 > x2) {
                 int xt = x1;
@@ -85,14 +96,22 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable) {
                 QVector<int> ct = c1;
                 c1 = c2;
                 c2 = ct;
+                int zt = z1;
+                z1 = z2;
+                z2 = zt;
             }
 
             for (int x = x1; x <= x2; x++) {
                 QVector<int> color = lerpColor(c1, c2, x, x1, x2);
-                Point po = Point(x, y, 0, color);
+                float z = lerpZ(z1, z2, x, x1, x2);
+                Point po = Point(x, y, z, color);
 
-                if (po.validColor()) {
-                    drawable->setPixel(x, y, po.getColor());
+                float zBuf = simp->buffer.get(x, y);
+                if (simp->buffer.minValue <= z && simp->buffer.maxValue >= z) {
+                    if (zBuf > z) {
+                        simp->buffer.set(x, y, z);
+                        drawable->setPixel(po.getX(), po.getY(), po.getColor());
+                    }
                 }
             }
         }

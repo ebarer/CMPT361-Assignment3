@@ -1,64 +1,29 @@
 #ifndef GFX_BASICS_H
 #define GFX_BASICS_H
 
+#include "math.h"
 #include <iostream>
 #include <QVector>
-#include <QVector4D>
+#include <QVector3D>
 
 using namespace std;
 
-#define BLUE    0
-#define GREEN   1
-#define RED     2
+enum COLOR_INDEX {
+    BLUE,
+    GREEN,
+    RED
+};
 
 class Point {
-public:
-    Point() : x(0), y(0), z(0) {
-        splitColor(0xffffffff);
-        depthCue();
-    }
-    Point(int x, int y, int z) : x(x), y(y), z(z) {
-        splitColor(0xffffffff);
-        depthCue();
-    }
-    Point(int x, int y, int z, uint color) : x(x), y(y), z(z) {
-        splitColor(color);
-        depthCue();
-    }
-    Point(int x, int y, int z, QVector<int> color) : x(x), y(y), z(z) {
-        channels = color;
-        depthCue();
-    }
-    Point(QVector4D v, uint color1, uint color2) {
-        this->x = (int)round(v.x());
-        this->y = (int)round(v.y());
-        this->z = (int)round(v.z());
-        depthCue(color1, color2);
-    }
-
-    void setX(int x) { this->x = x; }
-    int getX() { return x; }
-    void setY(int y) { this->y = y; }
-    int getY() { return y; }
-    void setZ(int z) { this->z = z; }
-    int getZ() { return z; }
-
-    void setColor(uint color) { splitColor(color); }
-    uint getColor() { return mergeColor(); }
-    QVector<int> getChannels() { return channels; }
-    bool validColor() {
-        if (channels[BLUE]  < 0 || channels[BLUE]  > 255) return false;
-        if (channels[GREEN] < 0 || channels[GREEN] > 255) return false;
-        if (channels[RED]   < 0 || channels[RED]   > 255) return false;
-        return true;
-    }
-
 private:
     int x;
     int y;
-    int z;
-    float a;
+    float z;
+
     QVector<int> channels = QVector<int>(3);
+    QVector3D world  = QVector3D();
+    QVector3D cam  = QVector3D();
+    QVector3D normal = QVector3D();
 
     void splitColor(uint color) {
         channels[BLUE]  = (color & 0xff);
@@ -72,26 +37,63 @@ private:
                       (channels[BLUE]  & 0xff);
         return color;
     }
-
-    void depthCue() {
-        a = 1 - (this->z / 200.0);
-        channels[BLUE]  = a * channels[BLUE];
-        channels[GREEN] = a * channels[GREEN];
-        channels[RED]   = a * channels[RED];
+public:
+    Point() : x(0), y(0), z(0) {
+        splitColor(0xffffffff);
     }
-    void depthCue(uint color1, uint color2) {
-        int b_1 = (color1 & 0xff);
-        int g_1 = ((color1 >> 8) & 0xff);
-        int r_1 = ((color1 >> 16) & 0xff);
+    Point(int x, int y, int z) : x(x), y(y), z(z) {
+        splitColor(0xffffffff);
+    }
+    Point(int x, int y, int z, uint color) : x(x), y(y), z(z) {
+        splitColor(color);
+    }
+    Point(int x, int y, int z, QVector<int> color) : x(x), y(y), z(z) {
+        this->channels = color;
+    }
+    Point(QVector3D v) {
+        this->x = (int)round(v.x());
+        this->y = (int)round(v.y());
+        this->z = v.z();
+    }
+    Point(QVector3D s, QVector3D c, QVector3D w, QVector<float> color) {
+        this->x = (int)round(s.x());
+        this->y = (int)round(s.y());
+        this->z = s.z();
 
-        int b_2 = (color2 & 0xff);
-        int g_2 = ((color2 >> 8) & 0xff);
-        int r_2 = ((color2 >> 16) & 0xff);
+        this->cam = c;
+        this->world = w;
 
-        a = 1 - (this->z / 200.0);
-        channels[BLUE]  = (int)(round(b_2 + (b_1-b_2)*a));
-        channels[GREEN] = (int)(round(g_2 + (g_1-g_2)*a));
-        channels[RED]   = (int)(round(r_2 + (r_1-r_2)*a));
+        this->setColor(color);
+    }
+
+    void setX(int x) { this->x = x; }
+    int getX() { return x; }
+    void setY(int y) { this->y = y; }
+    int getY() { return y; }
+    void setZ(float z) { this->z = z; }
+    float getZ() { return z; }
+    QVector3D getLoc() {
+        return QVector3D(this->x, this->y, this->z);
+    }
+
+    QVector3D getWorld() { return this->world; }
+    QVector3D getCamera() { return this->cam; }
+    void setNormal(QVector3D n) { this->normal = n; }
+    QVector3D getNormal() { return this->normal; }
+
+    void setColor(QVector<float> color) {
+        this->channels[RED]   = (int)round(255 * color[RED]);
+        this->channels[GREEN] = (int)round(255 * color[GREEN]);
+        this->channels[BLUE]  = (int)round(255 * color[BLUE]);
+    }
+    void setColor(uint color) { splitColor(color); }
+    uint getColor() { return mergeColor(); }
+    QVector<int> getChannels() { return channels; }
+    bool validColor() {
+        if (channels[BLUE]  < 0 || channels[BLUE]  > 255) return false;
+        if (channels[GREEN] < 0 || channels[GREEN] > 255) return false;
+        if (channels[RED]   < 0 || channels[RED]   > 255) return false;
+        return true;
     }
 };
 
@@ -157,6 +159,28 @@ public:
         channels[RED]   = (r_1 + (r_2-r_1)*q);
         return channels;
     }
+
+    float lerpZ(int x, int y) {
+        float z_1 = this->p1.getZ();
+        float z_2 = this->p2.getZ();
+
+        // Determine which delta to use for interpolation
+        // If either is 0, use the other, otherwise use largest
+        float q = 0.0;
+        if (dy() == 0) {
+            q = (((float)x)/dx()) + (-p1.getX()/dx());
+        } else if (dx() == 0) {
+            q = (((float)y)/dy()) + (-p1.getY()/dy());
+        } else {
+             if (dy() >= dx()) {
+                 q = (((float)y)/dy()) + (-p1.getY()/dy());
+             } else {
+                 q = (((float)x)/dx()) + (-p1.getX()/dx());
+             }
+        }
+
+        return z_1 + ((z_2 - z_1) * q);
+    }
 };
 
 class Polygon {
@@ -186,6 +210,57 @@ public:
         if (p3.getY() > p2.getY()) {
             swap(p2, p3);
         }
+    }
+};
+
+class ZBuffer {
+public:
+    float** buffer;
+    int width;
+    int height;
+    float minValue;
+    float maxValue;
+
+    ZBuffer() {
+        buffer = NULL;
+    }
+
+    ZBuffer(int h, int w, float minValue, float maxValue) {
+        initBuffer(h, w, minValue, maxValue);
+    }
+
+    void initBuffer(int h, int w, float minV, float maxV) {
+        this->width = w + 1;
+        this->height = h + 1;
+        this->minValue = minV;
+        this->maxValue = maxV;
+
+        buffer = new float*[width];
+
+        for (int i = 0; i < width; i++) {
+            buffer[i] = new float[height];
+            for (int j = 0; j < height; j++) {
+                buffer[i][j] = maxValue;
+            }
+        }
+    }
+
+    void set(int x, int y, float z) {
+        if (x >= 0 && x < width) {
+            if (y >= 0 && y < height) {
+                buffer[x][y] = z;
+            }
+        }
+    }
+
+    float get(int x, int y) {
+        if (x >= 0 && x < width) {
+            if (y >= 0 && y < height) {
+                return buffer[x][y];
+            }
+        }
+
+        return maxValue;
     }
 };
 

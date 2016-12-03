@@ -7,7 +7,6 @@
 #include "base/pageturner.h"
 #include "primitives/pane.h"
 #include "renderers/line_renderer_dda.h"
-#include "application/tests.h"
 #include "application/simp_reader.h"
 
 class Client : public PageTurner

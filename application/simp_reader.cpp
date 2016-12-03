@@ -3,13 +3,14 @@
 using namespace std;
 bool debug = false;
 
-void SimpReader::readFile(QString fileName, Drawable* drawable) {
+void SimpReader::readFile(QString fileName, Pane* drawable) {
     ctmStack = QStack<QMatrix4x4>();
-    // Define base CTM:
-    // [-100, 100] world space, convert to [0, 650] camera space
+
+    // Define base CTM and CAM:
     ctm = QMatrix4x4();
-    ctm.translate(325, 325, 0);
-    ctm.scale(3.25, -3.25, 1);
+    proj = QMatrix4x4();
+    cam = QMatrix4x4();
+    stm = QMatrix4x4();
 
     QFile inputFile(fileName);
     if (!inputFile.open(QIODevice::ReadOnly)) {
@@ -23,47 +24,91 @@ void SimpReader::readFile(QString fileName, Drawable* drawable) {
         iter = line.constBegin();
         readWhitespace();
 
-        switch((*iter).toLatin1()) {
-        case '#':                   // Ignore comments
-            continue;
-            break;
-        case '{':
+        // BLOCK STATEMENT
+        if ((*iter).toLatin1() == '{') {
             ctmStack.push(ctm);
             continue;
-            break;
-        case '}':
+        }
+        if ((*iter).toLatin1() == '}') {
             ctm = ctmStack.pop();
             continue;
-            break;
-        case 'r':
-            parseRotate();
-            break;
-        case 's':
+        }
+
+        QString token = parseToken();
+
+        // CAMERA + LIGHTING
+        if (token == "camera") {
+            camera = parseCamera(drawable);
+            continue;
+        }
+        if (token == "light") {
+            parseLight();
+            continue;
+        }
+
+        // TRANSFORMATIONS
+        if (token == "scale") {
             parseScale();
-            break;
-        case 't':
+            continue;
+        }
+        if (token == "rotate") {
+            parseRotate();
+            continue;
+        }
+        if (token == "translate") {
             parseTranslate();
-            break;
-        case 'l':
+            continue;
+        }
+
+        // PRIMITIVES
+        if (token == "line") {
             parseLine(drawable);
-            break;
-        case 'p':
-            parsePolygon(drawable);
-            break;
-        case 'm':
+            continue;
+        }
+        if (token == "mesh") {
             parseMesh(drawable);
-            break;
-        case 'w':
+            continue;
+        }
+        if (token == "polygon") {
+            parsePolygon(drawable);
+            continue;
+        }
+
+        // RENDERING STYLE
+        if (token == "phong") {
+            if (debug) { cout << "[PHONG]" << endl; }
+            style = Phong;
+            continue;
+        }
+        if (token == "gouraud") {
+            if (debug) { cout << "[GOURAUD]" << endl; }
+            style = Gouraud;
+            continue;
+        }
+        if (token == "flat") {
+            if (debug) { cout << "[FLAT]" << endl; }
+            style = Flat;
+            continue;
+        }
+
+        // RENDER ATTRIBUTES
+        if (token == "surface") {
+            parseSurface();
+            continue;
+        }
+        if (token == "ambient") {
+            parseAmbient();
+            continue;
+        }
+        if (token == "wire") {
             if (debug) { cout << "[WIREFRAME]" << endl; }
             wireframe = true;
-            break;
-        case 'f':
+            continue;
+        }
+        if (token == "filled") {
             if (debug) { cout << "[FILLED]" << endl; }
             wireframe = false;
-            break;
-        default:
             continue;
-            break;
         }
     }
 
@@ -71,10 +116,55 @@ void SimpReader::readFile(QString fileName, Drawable* drawable) {
 }
 
 
+// CAMERA + LIGHTING
+bool SimpReader::parseCamera(Pane* drawable) {
+    if (debug) { cout << "CAMERA: "; }
+
+    float xlow = parseDigit();
+    float ylow = parseDigit();
+    float xhigh = parseDigit();
+    float yhigh = parseDigit();
+    float hither = parseDigit();
+    float yon = parseDigit();
+
+    cam = ctm.inverted();
+    proj.frustum(xlow, xhigh, ylow, yhigh, -hither, -yon);
+    buffer = ZBuffer(drawable->getHeight(), drawable->getWidth(), hither, yon);
+
+    // Configure STM:   map to [0, 650] camera space
+    float dX = xhigh - xlow;
+    float dY = yhigh - ylow;
+    float xMid = xlow + ((xhigh-xlow)/2);
+    float yMid = ylow + ((yhigh-ylow)/2);
+
+    float translateX = round((drawable->getWidth() / 2) - xMid);
+    float translateY = round((drawable->getHeight() / 2) - yMid);
+    stm.translate(translateX, translateY, 0);
+
+    float scaleX = drawable->getWidth() / dX;
+    float scaleY = drawable->getHeight() / dY;
+    stm.scale(scaleX, -scaleY, 1);
+
+    return true;
+}
+
+void SimpReader::parseLight() {
+    //light <red> <green> <blue> <A> <B>
+    float r = parseDigit();
+    float g = parseDigit();
+    float b = parseDigit();
+    float attA = parseDigit();
+    float attB = parseDigit();
+
+    QVector3D v =  ctm * QVector3D(0, 0, 0);
+    Point p = Point(v);
+    lights.append(Light(p, r, g, b, attA, attB));
+}
+
+
 // TRANSFORMATIONS
 void SimpReader::parseRotate() {
     if (debug) { cout << "ROTATE: "; }
-    parseIdentifier();
 
     float x = 0, y = 0, z = 0;
     char axis = (*iter++).toLatin1();
@@ -106,7 +196,6 @@ void SimpReader::parseRotate() {
 
 void SimpReader::parseScale() {
     if (debug) { cout << "SCALE: "; }
-    parseIdentifier();
 
     float sx = parseDigit();
     float sy = parseDigit();
@@ -124,7 +213,6 @@ void SimpReader::parseScale() {
 
 void SimpReader::parseTranslate() {
     if (debug) { cout << "TRANSLATE: "; }
-    parseIdentifier();
 
     float tx = parseDigit();
     float ty = parseDigit();
@@ -141,44 +229,109 @@ void SimpReader::parseTranslate() {
 
 
 // PRIMITIVES
-void SimpReader::parseLine(Drawable* drawable) {
+Point SimpReader::parsePoint() {
+    float x, y, z, r, g, b;
+
+    expect('(');
+    x = parseDigit();
+    readSeparator();
+    y = parseDigit();
+    readSeparator();
+    z = parseDigit();
+
+    // If separator found, RGB values included
+    if (next() == ',') {
+        expect(',');
+        r = parseDigit();
+        readSeparator();
+        g = parseDigit();
+        readSeparator();
+        b = parseDigit();
+    } else {
+        r = surface.colors[RED];
+        g = surface.colors[GREEN];
+        b = surface.colors[BLUE];
+    }
+
+    expect(')');
+    readWhitespace();
+
+    QVector3D w = ctm * QVector3D(x, y, z);
+    QVector3D c = cam * w;
+    QVector3D s = stm * proj * c;
+    s.setZ(w.z());
+
+    QVector<float> color = QVector<float>(3);
+    color[RED]   = r;
+    color[GREEN] = g;
+    color[BLUE]  = b;
+
+    Point p = Point(s, c, w, color);
+
+    // If 'n' found, NORMAL included
+    if (next() == 'n' && !normalAveraging) {
+        float nx, ny, nz;
+
+        expect('n');
+
+        readWhitespace();
+        expect('[');
+
+        nx = parseDigit();
+        readSeparator();
+        ny = parseDigit();
+        readSeparator();
+        nz = parseDigit();
+
+        expect(']');
+        readWhitespace();
+
+        QVector3D n = ctm * QVector3D(nx, ny, nz); // NORMAL in World Space
+        p.setNormal(n);
+    }
+
+    return p;
+}
+
+void SimpReader::parseLine(Pane* drawable) {
     if (debug) { cout << "<LINE>" << endl; }
 
-    parseIdentifier();
-
-    QVector4D v1 = ctm * parsePoint();
-    QVector4D v2 = ctm * parsePoint();
-
-    Point p1 = Point(v1, colorNear, colorFar);
-    Point p2 = Point(v2, colorNear, colorFar);
+    Point p1 = parsePoint();
+    Point p2 = parsePoint();
 
     LineRendererDDA br = LineRendererDDA();
     Line line = Line(p1, p2);
-    br.draw_line(line, drawable);
+    br.draw_line(line, drawable, this);
 }
 
-void SimpReader::parsePolygon(Drawable* drawable) {
+void SimpReader::parsePolygon(Pane* drawable) {
     if (debug) { cout << "<POLYGON>" << endl; }
 
-    parseIdentifier();
+    Point p1 = parsePoint();
+    Point p2 = parsePoint();
+    Point p3 = parsePoint();
 
-    QVector4D v1 = ctm * parsePoint();
-    QVector4D v2 = ctm * parsePoint();
-    QVector4D v3 = ctm * parsePoint();
+    QVector3D normal = QVector3D::crossProduct((p2.getWorld() - p1.getWorld()), (p3.getWorld() - p1.getWorld())).normalized();
 
-    Point p1 = Point(v1, colorNear, colorFar);
-    Point p2 = Point(v2, colorNear, colorFar);
-    Point p3 = Point(v3, colorNear, colorFar);
+    p1.setNormal(normal);
+    p2.setNormal(normal);
+    p3.setNormal(normal);
+
+    // Handle lighting
+    QVector3D camera = cam.inverted() * QVector3D(0,0,0);
+    QVector<float> intensity = LightingModel::calculateLighting(p1, surface, ambient, lights, camera);
+
+    p1.setColor(intensity);
+    p2.setColor(intensity);
+    p3.setColor(intensity);
 
     PolygonRenderer pr = PolygonRenderer();
     Polygon poly = Polygon(p1, p2, p3);
-    pr.draw_polygon(poly, drawable, wireframe);
+    pr.draw_polygon(poly, drawable, this);
 }
 
-void SimpReader::parseMesh(Drawable* drawable) {
+void SimpReader::parseMesh(Pane* drawable) {
     if (debug) { cout << "<MESH>" << endl; }
-
-    parseIdentifier();
 
     expect('"');
     QString meshName = parseFilename();
@@ -191,11 +344,29 @@ void SimpReader::parseMesh(Drawable* drawable) {
         return;
     }
 
-    // Preserve iterator position
+    // Preserve iterator position and surface
     QString::const_iterator backupIter = iter;
+    Surface backupSurface = surface;
 
     QTextStream in(&meshFile);
     QString line = in.readLine();
+    iter = line.constBegin();
+    readWhitespace();
+
+    if (next() == 's' || next() == 'n') {
+        QString token = parseToken();
+
+        if (token == "surface") {
+            parseSurface();
+            token = parseToken();
+        }
+
+        if (token == "normal") {
+            normalAveraging = true;
+        }
+
+        line = in.readLine();
+    }
 
     // Get number of columns/rows for mesh
     int columns = line.toInt();
@@ -210,11 +381,7 @@ void SimpReader::parseMesh(Drawable* drawable) {
         points[r] = new Point[columns];
 
         for (int c = 0; c < columns; c++) {
-            line = in.readLine();
-            iter = line.constBegin();
-
-            QVector4D v = ctm * parseMeshPoint();
-            points[r][c] = Point(v, colorNear, colorFar);
+            points[r][c] = parsePoint();
         }
     }
 
@@ -233,26 +400,67 @@ void SimpReader::parseMesh(Drawable* drawable) {
             Point pb3 = points[r+1][c+1];
             Polygon poly2 = Polygon(pb1, pb2, pb3);
 
-            pr.draw_polygon(poly1, drawable, wireframe);
-            pr.draw_polygon(poly2, drawable, wireframe);
+            pr.draw_polygon(poly1, drawable, this);
+            pr.draw_polygon(poly2, drawable, this);
             polyGenerated += 2;
         }
     }
 
     if (debug) { cout << polyGenerated << endl; }
 
-    // Restore iterator
+    // Restore iterator and surface
     iter = backupIter;
+    surface= backupSurface;
+    normalAveraging = false;
+}
+
+
+// RENDER ATTRIBUTES
+void SimpReader::parseSurface() {
+    expect('(');
+
+    surface.colors[RED] = parseDigit();
+    readSeparator();
+    surface.colors[GREEN] = parseDigit();
+    readSeparator();
+    surface.colors[BLUE] = parseDigit();
+
+    expect(')');
+    readWhitespace();
+
+    surface.ks = parseDigit();
+    readWhitespace();
+
+    surface.alpha = parseDigit();
+    readWhitespace();
+}
+
+void SimpReader::parseAmbient() {
+    expect('(');
+
+    ambient.colors[RED] = parseDigit();
+    readSeparator();
+    ambient.colors[GREEN] = parseDigit();
+    readSeparator();
+    ambient.colors[BLUE] = parseDigit();
+
+    expect(')');
+    readWhitespace();
 }
 
 
 // PARSERS
-void SimpReader::parseIdentifier() {
+QString SimpReader::parseToken() {
+    QString identifier = QString();
+
     readWhitespace();
     while((*iter).isLetter()) {
+        identifier.append((*iter));
         iter++;
     }
     readWhitespace();
+
+    return identifier;
 }
 
 float SimpReader::parseDigit() {
@@ -265,38 +473,6 @@ float SimpReader::parseDigit() {
     readWhitespace();
 
     return param.toFloat();
-}
-
-QVector4D SimpReader::parsePoint() {
-    float x, y, z;
-    QVector4D v;
-
-    expect('(');
-    x = parseDigit();
-    readSeparator();
-    y = parseDigit();
-    readSeparator();
-    z = parseDigit();
-    expect(')');
-    readWhitespace();
-
-    v = QVector4D(x, y, z, 1);
-    return v;
-}
-
-QVector4D SimpReader::parseMeshPoint() {
-    float x, y, z;
-    QVector4D v;
-
-    x = parseDigit();
-    readWhitespace();
-    y = parseDigit();
-    readWhitespace();
-    z = parseDigit();
-    readWhitespace();
-
-    v = QVector4D(x, y, z, 1);
-    return v;
 }
 
 QString SimpReader::parseFilename() {
@@ -314,6 +490,11 @@ QString SimpReader::parseFilename() {
 
 
 // HELPERS
+char SimpReader::next() {
+    readWhitespace();
+    char test = (*iter).toLatin1();
+    return test;
+}
 void SimpReader::expect(char c) {
     char test = (*iter).toLatin1();
     if (test != c) {
