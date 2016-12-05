@@ -21,7 +21,10 @@ SOURCES += main.cpp \
     renderers/line_renderer_dda.cpp \
     renderers/polygon_renderer.cpp \
     application/simp_reader.cpp \
-    shaders/lighting_model.cpp
+    shaders/lighting_model.cpp \
+    shaders/shader_flat.cpp \
+    shaders/shader_gouraud.cpp \
+    shaders/shader_phong.cpp
 
 HEADERS  += \
     application/client.h \
@@ -37,4 +40,7 @@ HEADERS  += \
     renderers/polygon_renderer.h \
     application/simp_reader.h \
     shaders/shade_basics.h \
-    shaders/lighting_model.h
+    shaders/lighting_model.h \
+    shaders/shader_flat.h \
+    shaders/shader_gouraud.h \
+    shaders/shader_phong.h

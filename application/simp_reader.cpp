@@ -128,8 +128,13 @@ bool SimpReader::parseCamera(Pane* drawable) {
     float yon = parseDigit();
 
     cam = ctm.inverted();
-    proj.frustum(xlow, xhigh, ylow, yhigh, -hither, -yon);
     buffer = ZBuffer(drawable->getHeight(), drawable->getWidth(), hither, yon);
+
+    // Define frustum
+    proj.setRow(0, QVector4D((hither/xhigh), 0, 0, 0));
+    proj.setRow(1, QVector4D(0, (hither/xhigh), 0, 0));
+    proj.setRow(2, QVector4D(0, 0, ((yon+hither)/(yon-hither)), ((2*yon*hither)/(yon-hither))));
+    proj.setRow(3, QVector4D(0, 0, 1, 0));
 
     // Configure STM:   map to [0, 650] camera space
     float dX = xhigh - xlow;
@@ -266,7 +271,7 @@ Point SimpReader::parsePoint() {
     color[GREEN] = g;
     color[BLUE]  = b;
 
-    Point p = Point(s, c, w, color);
+    Point p = Point(s, w, color);
 
     // If 'n' found, NORMAL included
     if (next() == 'n' && !normalAveraging) {
@@ -299,9 +304,17 @@ void SimpReader::parseLine(Pane* drawable) {
     Point p1 = parsePoint();
     Point p2 = parsePoint();
 
-    LineRendererDDA br = LineRendererDDA();
+    if (p1.getZ() > 50 || p1.getZ() < 1) {
+        cout << p1.getZ() << endl;
+    }
+
+    if (p2.getZ() > 50 || p2.getZ() < 1) {
+        cout << p2.getZ() << endl;
+    }
+
+    LineRendererDDA dda = LineRendererDDA();
     Line line = Line(p1, p2);
-    br.draw_line(line, drawable, this);
+    dda.draw_line(line, drawable, this);
 }
 
 void SimpReader::parsePolygon(Pane* drawable) {
@@ -311,22 +324,31 @@ void SimpReader::parsePolygon(Pane* drawable) {
     Point p2 = parsePoint();
     Point p3 = parsePoint();
 
-    QVector3D normal = QVector3D::crossProduct((p2.getWorld() - p1.getWorld()), (p3.getWorld() - p1.getWorld())).normalized();
+    if (!wireframe) {
+        QVector3D camera = cam.inverted() * QVector3D(0,0,0);
 
-    p1.setNormal(normal);
-    p2.setNormal(normal);
-    p3.setNormal(normal);
+        if (style == Flat) {
+            Point center = ShaderFlat::shade(p1, p2, p3);
+            QVector<float> intensity = LightingModel::calculateLighting(center, surface, ambient, lights, camera);
+            p1.setColor(intensity);
+            p2.setColor(intensity);
+            p3.setColor(intensity);
+        }
 
-    // Handle lighting
-    QVector3D camera = cam.inverted() * QVector3D(0,0,0);
-    QVector<float> intensity = LightingModel::calculateLighting(p1, surface, ambient, lights, camera);
+        if (style == Gouraud) {
+            ShaderGouraud::shade(p1, p2, p3);
+            p1.setColor(LightingModel::calculateLighting(p1, surface, ambient, lights, camera));
+            p2.setColor(LightingModel::calculateLighting(p2, surface, ambient, lights, camera));
+            p3.setColor(LightingModel::calculateLighting(p3, surface, ambient, lights, camera));
+        }
 
-    p1.setColor(intensity);
-    p2.setColor(intensity);
-    p3.setColor(intensity);
+        if (style == Phong) {
+            ShaderPhong::shade(p1, p2, p3);
+        }
+    }
 
-    PolygonRenderer pr = PolygonRenderer();
     Polygon poly = Polygon(p1, p2, p3);
+    PolygonRenderer pr = PolygonRenderer();
     pr.draw_polygon(poly, drawable, this);
 }
 
@@ -358,14 +380,16 @@ void SimpReader::parseMesh(Pane* drawable) {
 
         if (token == "surface") {
             parseSurface();
+            line = in.readLine();
+            iter = line.constBegin();
             token = parseToken();
         }
 
         if (token == "normal") {
             normalAveraging = true;
+            line = in.readLine();
+            iter = line.constBegin();
         }
-
-        line = in.readLine();
     }
 
     // Get number of columns/rows for mesh
@@ -374,14 +398,64 @@ void SimpReader::parseMesh(Pane* drawable) {
     int rows = line.toInt();
 
     // Define mesh matrix
-    Point** points = new Point*[columns];
+    vector<vector<Point>> points(rows, vector<Point>(columns));
 
     // Retrieve all matrix points
     for (int r = 0; r < rows; r++) {
-        points[r] = new Point[columns];
-
         for (int c = 0; c < columns; c++) {
+            line = in.readLine();
+            iter = line.constBegin();
             points[r][c] = parsePoint();
+        }
+    }
+
+    if (normalAveraging) {
+        // Keep track of number of access to point
+        vector<vector<int>> faceCount(rows, vector<int>(columns));
+
+        // Find face normals and add to point normals
+        for (int r = 0; r < rows-1; r++) {
+            for (int c = 0; c < columns-1; c++) {
+                // 01   02
+                // 03   04
+
+                //Poly1: p1 = 1, p2 = 3, p3 = 4
+                //Poly2: p1 = 1, p2 = 4, p3 = 2
+
+                Point v1 = points[r][c];
+                Point v2 = points[r][c+1];
+                Point v3 = points[r+1][c];
+                Point v4 = points[r+1][c+1];
+
+                // Find face normal pf poly 1 and poly 2
+                QVector3D normal1 = QVector3D::crossProduct((v3.getWorld() - v1.getWorld()), (v4.getWorld() - v1.getWorld()));
+                normal1.normalize();
+
+                QVector3D normal2 = QVector3D::crossProduct((v4.getWorld() - v1.getWorld()), (v2.getWorld() - v1.getWorld()));
+                normal2.normalize();
+
+                // Average those normals
+                points[r][c].addNormal(normal1);
+                points[r][c].addNormal(normal2);
+                faceCount[r][c] += 2;
+
+                points[r][c+1].addNormal(normal2);
+                faceCount[r][c+1] += 1;
+
+                points[r+1][c].addNormal(normal1);
+                faceCount[r+1][c] += 1;
+
+                points[r+1][c+1].addNormal(normal1);
+                points[r+1][c+1].addNormal(normal2);
+                faceCount[r+1][c+1] += 2;
+            }
+        }
+
+        // Normalize all vectors
+        for (int r = 0; r < rows; r++) {
+            for (int c = 0; c < columns; c++) {
+                points[r][c].normalizeNormal(faceCount[r][c]);
+            }
         }
     }
 
@@ -390,18 +464,67 @@ void SimpReader::parseMesh(Pane* drawable) {
     PolygonRenderer pr = PolygonRenderer();
     for (int r = 0; r < rows-1; r++) {
         for (int c = 0; c < columns-1; c++) {
+
             Point pa1 = points[r][c];
             Point pa2 = points[r+1][c];
             Point pa3 = points[r+1][c+1];
+
+            if (!wireframe) {
+                QVector3D camera = cam.inverted() * QVector3D(0,0,0);
+
+                if (style == Flat) {
+                    Point center = ShaderFlat::shade(pa1, pa2, pa3);
+                    QVector<float> intensity = LightingModel::calculateLighting(center, surface, ambient, lights, camera);
+                    pa1.setColor(intensity);
+                    pa2.setColor(intensity);
+                    pa3.setColor(intensity);
+                }
+
+                if (style == Gouraud) {
+                    ShaderGouraud::shade(pa1, pa2, pa3);
+                    pa1.setColor(LightingModel::calculateLighting(pa1, surface, ambient, lights, camera));
+                    pa2.setColor(LightingModel::calculateLighting(pa2, surface, ambient, lights, camera));
+                    pa3.setColor(LightingModel::calculateLighting(pa3, surface, ambient, lights, camera));
+                }
+
+                if (style == Phong) {
+                    ShaderPhong::shade(pa1, pa2, pa3);
+                }
+            }
+
             Polygon poly1 = Polygon(pa1, pa2, pa3);
+            pr.draw_polygon(poly1, drawable, this);
 
             Point pb1 = points[r][c];
-            Point pb2 = points[r][c+1];
-            Point pb3 = points[r+1][c+1];
-            Polygon poly2 = Polygon(pb1, pb2, pb3);
+            Point pb2 = points[r+1][c+1];
+            Point pb3 = points[r][c+1];
 
-            pr.draw_polygon(poly1, drawable, this);
+            if (!wireframe) {
+                QVector3D camera = cam.inverted() * QVector3D(0,0,0);
+
+                if (style == Flat) {
+                    Point center = ShaderFlat::shade(pb1, pb2, pb3);
+                    QVector<float> intensity = LightingModel::calculateLighting(center, surface, ambient, lights, camera);
+                    pb1.setColor(intensity);
+                    pb2.setColor(intensity);
+                    pb3.setColor(intensity);
+                }
+
+                if (style == Gouraud) {
+                    ShaderGouraud::shade(pb1, pb2, pb3);
+                    pb1.setColor(LightingModel::calculateLighting(pb1, surface, ambient, lights, camera));
+                    pb2.setColor(LightingModel::calculateLighting(pb2, surface, ambient, lights, camera));
+                    pb3.setColor(LightingModel::calculateLighting(pb3, surface, ambient, lights, camera));
+                }
+
+                if (style == Phong) {
+                    ShaderPhong::shade(pb1, pb2, pb3);
+                }
+            }
+
+            Polygon poly2 = Polygon(pb1, pb2, pb3);
             pr.draw_polygon(poly2, drawable, this);
+
             polyGenerated += 2;
         }
     }

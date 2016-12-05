@@ -8,31 +8,40 @@ QVector<float> LightingModel::calculateLighting(Point p,
 
     QVector<float> intensity = QVector<float>(3);
 
-// Evaluate RED intensity
+    // Set ambient lighting
     for (int c = 0; c < 3; c++) {
-        float kd = p.getChannels()[c];
         float Ia = ambient.colors[c];
-        float sum = 0;
-
-        for (int i = 0; i < lights.size(); i++) {
-            float di = lights[i].p.getLoc().distanceToPoint(p.getWorld());
-            float fatti = 1 / (lights[i].attA + (lights[i].attB * di));
-
-            QVector3D L = lights[i].p.getLoc() - p.getWorld();     // world vs. camera? subtract not cross?
-            float NL = QVector3D::dotProduct(p.getNormal(), L);
-            float kdNL =  kd * NL;
-
-            QVector3D R = (2 * NL * p.getNormal()) - L;
-            QVector3D V = camera - p.getLoc();
-            V.normalize();
-            float ksVR = surface.ks * pow(QVector3D::dotProduct(V, R), surface.alpha);
-
-            sum += lights[i].colors[c] * fatti * (kdNL + ksVR);
-        }
-
-        intensity[c] = kd * Ia + sum;
+        float kd = p.getChannels()[c] / 255.0;
+        intensity[c] = kd * Ia;
     }
 
-// Return muxed channels
+    // Set lighting based on lights in scene
+    for (int i = 0; i < lights.size(); i++) {
+        float di = lights[i].p.getWorld().distanceToPoint(p.getWorld());
+        float fatti = 1 / (lights[i].attA + (lights[i].attB * di));
+
+        QVector3D L = lights[i].p.getWorld() - p.getWorld();     // world vs. camera? subtract not cross?
+        L.normalize();
+        QVector3D N = p.getNormal();
+        N.normalize();
+        float NL = QVector3D::dotProduct(N, L);
+
+        QVector3D R = (2 * NL * N) - L;
+        R.normalize();
+        QVector3D V = camera - p.getWorld();
+        V.normalize();
+        float ksVR = surface.ks * pow(QVector3D::dotProduct(V, R), surface.alpha);
+
+        for (int c = 0; c < 3; c++) {
+            float kd = p.getChannels()[c] / 255.0;
+            float kdNL = kd * NL;
+            float sum = lights[i].colors[c] * fatti * (kdNL + ksVR);
+            intensity[c] += sum;
+
+            // If VAL is < 0 or > 1, set to respective limit, else set to VAL
+            intensity[c] = (intensity[c] > 1) ? 1 : (intensity[c] < 0) ? 0 : intensity[c];
+        }
+    }
+
     return intensity;
 }

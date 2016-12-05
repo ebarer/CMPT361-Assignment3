@@ -15,6 +15,9 @@
 #include "primitives/gfx_basics.h"
 #include "shaders/shade_basics.h"
 #include "shaders/lighting_model.h"
+#include "shaders/shader_flat.h"
+#include "shaders/shader_gouraud.h"
+#include "shaders/shader_phong.h"
 #include "renderers/line_renderer_dda.h"
 #include "renderers/polygon_renderer.h"
 
@@ -38,6 +41,12 @@ public:
     Ambient ambient = Ambient();
     QVector<Light> lights = QVector<Light>();
 
+    QMatrix4x4 ctm;     // Object Space -> World Space
+    QMatrix4x4 cam;     // World Space -> Camera Space
+    QMatrix4x4 proj;    // Camera Space -> Projected Space
+    QMatrix4x4 stm;     // Projected Space -> Screen Space
+    QStack<QMatrix4x4> ctmStack;
+
     SimpReader() {}
     ~SimpReader() {}
 
@@ -45,11 +54,6 @@ public:
 
 private:
     QString::const_iterator iter;
-    QMatrix4x4 ctm;     // Object Space -> World Space
-    QMatrix4x4 cam;     // World Space -> Camera Space
-    QMatrix4x4 proj;    // Camera Space -> Projected Space
-    QMatrix4x4 stm;     // Projected Space -> Screen Space
-    QStack<QMatrix4x4> ctmStack;
 
     // CAMERA + LIGHTING
     bool parseCamera(Pane* drawable);

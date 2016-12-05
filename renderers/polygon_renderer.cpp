@@ -46,11 +46,32 @@ QVector<int> lerpColor(QVector<int> c_1, QVector<int> c_2, int x, int x1, int x2
     return channels;
 }
 
-float lerpZ(float z_1, float z_2, int x, int x1, int x2) {
+QVector3D lerpWorld(QVector3D w1, QVector3D w2, int x, int x1, int x2) {
     int dx = x2-x1;
-    if (dx == 0) { return z_1; }
+    if (dx == 0) { return w1; }
     float q = (((float)x)/dx) + (-((float)x1)/dx);
-    return z_1 + ((z_2 - z_1) * q);
+
+    QVector3D world = QVector3D();
+
+    world.setX(w1.x() + (w2.x() - w1.x()) * q);
+    world.setY(w1.y() + (w2.y() - w1.y()) * q);
+    world.setZ(w1.z() + (w2.z() - w1.z()) * q);
+
+    return world;
+}
+
+QVector3D lerpNormal(QVector3D n1, QVector3D n2, int x, int x1, int x2) {
+    int dx = x2-x1;
+    if (dx == 0) { return n1; }
+    float q = (((float)x)/dx) + (-((float)x1)/dx);
+
+    QVector3D normal = QVector3D();
+
+    normal.setX(n1.x() + (n2.x() - n1.x()) * q);
+    normal.setX(n1.y() + (n2.y() - n1.y()) * q);
+    normal.setX(n1.z() + (n2.z() - n1.z()) * q);
+
+    return normal;
 }
 
 void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable, SimpReader* simp) {
@@ -86,8 +107,10 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable, SimpReader* sim
 
             QVector<int> c1 = lines[maxLine]->lerpColor(x1, y);
             QVector<int> c2 = lines[i]->lerpColor(x2, y);
-            float z1 = lines[maxLine]->lerpZ(x1, y);
-            float z2 = lines[maxLine]->lerpZ(x2, y);
+            QVector3D w1 = lines[maxLine]->lerpWorld(x1, y);
+            QVector3D w2 = lines[i]->lerpWorld(x2, y);
+            QVector3D n1 = lines[maxLine]->lerpNormal(x1, y);
+            QVector3D n2 = lines[i]->lerpNormal(x2, y);
 
             if (x1 > x2) {
                 int xt = x1;
@@ -96,22 +119,28 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable, SimpReader* sim
                 QVector<int> ct = c1;
                 c1 = c2;
                 c2 = ct;
-                int zt = z1;
-                z1 = z2;
-                z2 = zt;
+                QVector3D wt = w1;
+                w1 = w2;
+                w2 = wt;
+                QVector3D nt = n1;
+                n1 = n2;
+                n2 = nt;
             }
 
             for (int x = x1; x <= x2; x++) {
-                QVector<int> color = lerpColor(c1, c2, x, x1, x2);
-                float z = lerpZ(z1, z2, x, x1, x2);
-                Point po = Point(x, y, z, color);
+                QVector3D world = lerpWorld(w1, w2, x, x1, x2);
+                Point po = Point(x, y, world.z(), lerpColor(c1, c2, x, x1, x2));
+                po.setWorld(world);
+                po.setNormal(lerpNormal(n1, n2, x, x1, x2));
 
-                float zBuf = simp->buffer.get(x, y);
-                if (simp->buffer.minValue <= z && simp->buffer.maxValue >= z) {
-                    if (zBuf > z) {
-                        simp->buffer.set(x, y, z);
-                        drawable->setPixel(po.getX(), po.getY(), po.getColor());
-                    }
+                if (simp->style == Phong) {
+                    QVector3D camera = simp->cam.inverted() * QVector3D(0,0,0);
+                    QVector<float> intensity = LightingModel::calculateLighting(po, simp->surface, simp->ambient, simp->lights, camera);
+                    po.setColor(intensity);
+                }
+
+                if (simp->buffer.update(po.getX(), po.getY(), po.getZ())) {
+                    drawable->setPixel(po.getX(), po.getY(), po.getColor());
                 }
             }
         }

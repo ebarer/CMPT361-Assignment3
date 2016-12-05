@@ -17,16 +17,13 @@ void LineRendererDDA::draw(Line l, int octant, Drawable* drawable, SimpReader* s
 
     for (int x = l.p1.getX(); x <= l.p2.getX(); x++) {
         QVector<int> color = l.lerpColor(x, round(y));
+        QVector3D world = l.lerpWorld(x, round(y));
+
         Point p = Point(x, round(y), 0, color);
         revert(p, octant);
 
-        int z = l.lerpZ(p.getX(), p.getY());
-        float zBuf = simp->buffer.get(x, y);
-        if (simp->buffer.minValue <= z && simp->buffer.maxValue >= z) {
-            if (zBuf > z) {
-                simp->buffer.set(x, y, z);
-                drawable->setPixel(p.getX(), p.getY(), p.getColor());
-            }
+        if (simp->buffer.update(p.getX(), p.getY(), world.z())) {
+            drawable->setPixel(p.getX(), p.getY(), p.getColor());
         }
 
         y += l.slope();

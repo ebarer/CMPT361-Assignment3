@@ -9,9 +9,9 @@
 using namespace std;
 
 enum COLOR_INDEX {
-    BLUE,
+    RED,
     GREEN,
-    RED
+    BLUE
 };
 
 class Point {
@@ -22,7 +22,6 @@ private:
 
     QVector<int> channels = QVector<int>(3);
     QVector3D world  = QVector3D();
-    QVector3D cam  = QVector3D();
     QVector3D normal = QVector3D();
 
     void splitColor(uint color) {
@@ -41,29 +40,35 @@ public:
     Point() : x(0), y(0), z(0) {
         splitColor(0xffffffff);
     }
-    Point(int x, int y, int z) : x(x), y(y), z(z) {
+    Point(int x, int y, float z) : x(x), y(y), z(z) {
         splitColor(0xffffffff);
     }
-    Point(int x, int y, int z, uint color) : x(x), y(y), z(z) {
+    Point(int x, int y, float z, uint color) : x(x), y(y), z(z) {
         splitColor(color);
     }
-    Point(int x, int y, int z, QVector<int> color) : x(x), y(y), z(z) {
+    Point(int x, int y, float z, QVector<int> color) : x(x), y(y), z(z) {
         this->channels = color;
     }
     Point(QVector3D v) {
         this->x = (int)round(v.x());
         this->y = (int)round(v.y());
         this->z = v.z();
+        this->world = v;
     }
-    Point(QVector3D s, QVector3D c, QVector3D w, QVector<float> color) {
+    Point(QVector3D s, QVector3D w, QVector<float> color) {
         this->x = (int)round(s.x());
         this->y = (int)round(s.y());
         this->z = s.z();
 
-        this->cam = c;
         this->world = w;
 
         this->setColor(color);
+    }
+    // Lighting constructor
+    Point(QVector3D world, QVector3D normal, QVector<int> color) {
+        this->world = world;
+        this->normal = normal;
+        this->channels = color;
     }
 
     void setX(int x) { this->x = x; }
@@ -76,10 +81,12 @@ public:
         return QVector3D(this->x, this->y, this->z);
     }
 
+    void setWorld(QVector3D w) { this->world = w; }
     QVector3D getWorld() { return this->world; }
-    QVector3D getCamera() { return this->cam; }
     void setNormal(QVector3D n) { this->normal = n; }
     QVector3D getNormal() { return this->normal; }
+    void addNormal(QVector3D n) { this->normal.operator +=(n); }
+    void normalizeNormal(int count) { this->normal.operator /=(count); }
 
     void setColor(QVector<float> color) {
         this->channels[RED]   = (int)round(255 * color[RED]);
@@ -130,13 +137,13 @@ public:
         QVector<int> c_1 = p1.getChannels();
         QVector<int> c_2 = p2.getChannels();
 
-        int b_1 = c_1[BLUE];
-        int g_1 = c_1[GREEN];
         int r_1 = c_1[RED];
+        int g_1 = c_1[GREEN];
+        int b_1 = c_1[BLUE];
 
-        int b_2 = c_2[BLUE];
-        int g_2 = c_2[GREEN];
         int r_2 = c_2[RED];
+        int g_2 = c_2[GREEN];
+        int b_2 = c_2[BLUE];
 
         // Determine which delta to use for interpolation
         // If either is 0, use the other, otherwise use largest
@@ -154,18 +161,13 @@ public:
         }
 
         QVector<int> channels = QVector<int>(3);
-        channels[BLUE]  = (b_1 + (b_2-b_1)*q);
-        channels[GREEN] = (g_1 + (g_2-g_1)*q);
         channels[RED]   = (r_1 + (r_2-r_1)*q);
+        channels[GREEN] = (g_1 + (g_2-g_1)*q);
+        channels[BLUE]  = (b_1 + (b_2-b_1)*q);
         return channels;
     }
 
-    float lerpZ(int x, int y) {
-        float z_1 = this->p1.getZ();
-        float z_2 = this->p2.getZ();
-
-        // Determine which delta to use for interpolation
-        // If either is 0, use the other, otherwise use largest
+    QVector3D lerpWorld(int x, int y) {
         float q = 0.0;
         if (dy() == 0) {
             q = (((float)x)/dx()) + (-p1.getX()/dx());
@@ -179,7 +181,36 @@ public:
              }
         }
 
-        return z_1 + ((z_2 - z_1) * q);
+        QVector3D world = QVector3D();
+
+        world.setX(p1.getWorld().x() + (p2.getWorld().x() - p1.getWorld().x()) * q);
+        world.setY(p1.getWorld().y() + (p2.getWorld().y() - p1.getWorld().y()) * q);
+        world.setZ(p1.getWorld().z() + (p2.getWorld().z() - p1.getWorld().z()) * q);
+
+        return world;
+    }
+
+    QVector3D lerpNormal(int x, int y) {
+        float q = 0.0;
+        if (dy() == 0) {
+            q = (((float)x)/dx()) + (-p1.getX()/dx());
+        } else if (dx() == 0) {
+            q = (((float)y)/dy()) + (-p1.getY()/dy());
+        } else {
+             if (dy() >= dx()) {
+                 q = (((float)y)/dy()) + (-p1.getY()/dy());
+             } else {
+                 q = (((float)x)/dx()) + (-p1.getX()/dx());
+             }
+        }
+
+        QVector3D normal = QVector3D();
+
+        normal.setX(p1.getNormal().x() + (p2.getNormal().x() - p1.getNormal().x()) * q);
+        normal.setY(p1.getNormal().y() + (p2.getNormal().y() - p1.getNormal().y()) * q);
+        normal.setZ(p1.getNormal().z() + (p2.getNormal().z() - p1.getNormal().z()) * q);
+
+        return normal;
     }
 };
 
@@ -215,15 +246,13 @@ public:
 
 class ZBuffer {
 public:
-    float** buffer;
+    vector<vector<float>> buffer;
     int width;
     int height;
     float minValue;
     float maxValue;
 
-    ZBuffer() {
-        buffer = NULL;
-    }
+    ZBuffer() : buffer(0, vector<float>(0, 0)) {}
 
     ZBuffer(int h, int w, float minValue, float maxValue) {
         initBuffer(h, w, minValue, maxValue);
@@ -235,14 +264,7 @@ public:
         this->minValue = minV;
         this->maxValue = maxV;
 
-        buffer = new float*[width];
-
-        for (int i = 0; i < width; i++) {
-            buffer[i] = new float[height];
-            for (int j = 0; j < height; j++) {
-                buffer[i][j] = maxValue;
-            }
-        }
+        buffer.resize(width, vector<float>(height, maxValue + 1));
     }
 
     void set(int x, int y, float z) {
@@ -261,6 +283,17 @@ public:
         }
 
         return maxValue;
+    }
+
+    bool update(int x, int y, float z) {
+        if ((x >= 0 && x < width) && (y >= 0 && y < height)) {
+            if (z >= minValue && z <= maxValue && z < buffer[x][y]) {
+                buffer[x][y] = z;
+                return true;
+            }
+        }
+
+        return false;
     }
 };
 
