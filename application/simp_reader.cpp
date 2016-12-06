@@ -131,23 +131,25 @@ bool SimpReader::parseCamera(Pane* drawable) {
     buffer = ZBuffer(drawable->getHeight(), drawable->getWidth(), hither, yon);
 
     // Define frustum
-    proj.setRow(0, QVector4D((hither/xhigh), 0, 0, 0));
-    proj.setRow(1, QVector4D(0, (hither/xhigh), 0, 0));
-    proj.setRow(2, QVector4D(0, 0, ((yon+hither)/(yon-hither)), ((2*yon*hither)/(yon-hither))));
+    float width = (xhigh - xlow);
+    float height = (yhigh - ylow);
+    float depth = (yon - hither);
+
+    proj.setRow(0, QVector4D(((2 * hither) / width), 0, ((xhigh + xlow) / width), 0));
+    proj.setRow(1, QVector4D(0, ((2 * hither) / height), ((yhigh + ylow) / height), 0));
+    proj.setRow(2, QVector4D(0, 0, ((yon+hither) / depth), ((2 * hither) / depth)));
     proj.setRow(3, QVector4D(0, 0, 1, 0));
 
     // Configure STM:   map to [0, 650] camera space
-    float dX = xhigh - xlow;
-    float dY = yhigh - ylow;
-    float xMid = xlow + ((xhigh-xlow)/2);
-    float yMid = ylow + ((yhigh-ylow)/2);
+    float xMid = xlow + (width / 2);
+    float yMid = ylow + (height /2);
 
     float translateX = round((drawable->getWidth() / 2) - xMid);
     float translateY = round((drawable->getHeight() / 2) - yMid);
     stm.translate(translateX, translateY, 0);
 
-    float scaleX = drawable->getWidth() / dX;
-    float scaleY = drawable->getHeight() / dY;
+    float scaleX = drawable->getWidth() / 2;
+    float scaleY = drawable->getHeight() / 2;
     stm.scale(scaleX, -scaleY, 1);
 
     return true;
@@ -175,10 +177,10 @@ void SimpReader::parseRotate() {
     char axis = (*iter++).toLatin1();
     switch(axis) {
     case 'X':
-        x = 1;
+        x = -1;
         break;
     case 'Y':
-        y = 1;
+        y = -1;
         break;
     case 'Z':
         z = -1;
@@ -263,7 +265,8 @@ Point SimpReader::parsePoint() {
 
     QVector3D w = ctm * QVector3D(x, y, z);
     QVector3D c = cam * w;
-    QVector3D s = stm * proj * c;
+    QVector3D s = proj * c;
+    s = stm * s;
     s.setZ(w.z());
 
     QVector<float> color = QVector<float>(3);

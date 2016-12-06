@@ -68,8 +68,8 @@ QVector3D lerpNormal(QVector3D n1, QVector3D n2, int x, int x1, int x2) {
     QVector3D normal = QVector3D();
 
     normal.setX(n1.x() + (n2.x() - n1.x()) * q);
-    normal.setX(n1.y() + (n2.y() - n1.y()) * q);
-    normal.setX(n1.z() + (n2.z() - n1.z()) * q);
+    normal.setY(n1.y() + (n2.y() - n1.y()) * q);
+    normal.setZ(n1.z() + (n2.z() - n1.z()) * q);
 
     return normal;
 }
@@ -131,15 +131,17 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable, SimpReader* sim
                 QVector3D world = lerpWorld(w1, w2, x, x1, x2);
                 Point po = Point(x, y, world.z(), lerpColor(c1, c2, x, x1, x2));
                 po.setWorld(world);
-                po.setNormal(lerpNormal(n1, n2, x, x1, x2));
-
-                if (simp->style == Phong) {
-                    QVector3D camera = simp->cam.inverted() * QVector3D(0,0,0);
-                    QVector<float> intensity = LightingModel::calculateLighting(po, simp->surface, simp->ambient, simp->lights, camera);
-                    po.setColor(intensity);
-                }
 
                 if (simp->buffer.update(po.getX(), po.getY(), po.getZ())) {
+                    if (simp->style == Phong) {
+                        po.setNormal(lerpNormal(n1, n2, x, x1, x2));
+
+                        QVector3D camera = simp->cam.inverted() * QVector3D(0,0,0);
+                        QVector<float> intensity = LightingModel::calculateLighting(po, simp->surface, simp->ambient, simp->lights, camera);
+
+                        po.setColor(intensity);
+                    }
+
                     drawable->setPixel(po.getX(), po.getY(), po.getColor());
                 }
             }
