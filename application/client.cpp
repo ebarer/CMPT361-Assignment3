@@ -5,7 +5,7 @@ Client::Client(Drawable *drawable) {
     panes[0] = new Pane(50, 50, this->drawable);
 }
 
-void Client::nextPage() {
+void Client::nextPage(QString filename) {
     SimpReader reader = SimpReader();
 
     srand(time(NULL));
@@ -14,7 +14,7 @@ void Client::nextPage() {
 
     draw_rect(0, 0, 750, 750, 0xffffffff); // Draw background
     panes[0]->setBackground(0xff000000);
-    reader.readFile("test.simp", (Pane*)panes[0]);
+    reader.readFile(filename, (Pane*)panes[0]);
     drawable->updateScreen();
 }
 

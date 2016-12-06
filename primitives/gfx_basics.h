@@ -86,7 +86,10 @@ public:
     void setNormal(QVector3D n) { this->normal = n; }
     QVector3D getNormal() { return this->normal; }
     void addNormal(QVector3D n) { this->normal.operator +=(n); }
-    void normalizeNormal(int count) { this->normal.operator /=(count); }
+    void normalizeNormal(int count) {
+        this->normal.operator /= (count);
+        this->normal.normalize();
+    }
 
     void setColor(QVector<float> color) {
         this->channels[RED]   = (int)round(255 * color[RED]);

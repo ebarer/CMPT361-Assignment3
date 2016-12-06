@@ -2,6 +2,7 @@
 #define WINDOW_H
 
 #include <QWidget>
+#include <QFileDialog>
 #include <QPushButton>
 #include "pageturner.h"
 #include "drawable.h"
@@ -20,13 +21,10 @@ public:
 private:
     RenderArea361 *renderArea;
     QPushButton *nextPageButton;
-    QPushButton *refreshPageButton;
     PageTurner *pageTurner;
-
 
 private slots:
     void nextPageClicked();
-    void refreshPageClicked();
 
 };
 

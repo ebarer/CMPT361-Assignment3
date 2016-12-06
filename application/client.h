@@ -13,7 +13,7 @@ class Client : public PageTurner
 {
 public:
     Client(Drawable *drawable);
-    void nextPage();
+    void nextPage(QString filename);
 
 private:
     Drawable *drawable;

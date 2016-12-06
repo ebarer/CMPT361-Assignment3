@@ -5,14 +5,12 @@
 Window361::Window361()
 {
     renderArea = new RenderArea361((QWidget *)0);
-    nextPageButton = new QPushButton("next page");
-    refreshPageButton = new QPushButton("refresh page");
+    nextPageButton = new QPushButton("Load SIMP File");
     connect(nextPageButton, SIGNAL(clicked()), this, SLOT(nextPageClicked()));
 
     QGridLayout *layout = new QGridLayout;
     layout->addWidget(renderArea, 0, 0);
     layout->addWidget(nextPageButton, 0, 1);
-//    layout->addWidget(refreshPageButton, 0, 1, Qt::AlignBottom);
     setLayout(layout);
 
     setWindowTitle(tr("361 Window"));
@@ -23,24 +21,18 @@ Drawable *Window361::getDrawable() {
 Window361::~Window361() {
     delete renderArea;
     delete nextPageButton;
-    delete refreshPageButton;
 }
 
 void Window361::setPageTurner(PageTurner *pageTurner) {
     this->pageTurner = pageTurner;
-    pageTurner->nextPage();     // give them the change for the first page.
+    nextPageClicked();
 }
 
 void Window361::nextPageClicked() {
+    QString fileName = QFileDialog::getOpenFileName(this, tr("Open SIMP"), "", tr("SIMP Files (*.simp)"));
+
     if(pageTurner != 0) {
-        pageTurner->nextPage();
+        pageTurner->nextPage(fileName);
     }
 }
-
-void Window361::refreshPageClicked() {
-    if(pageTurner != 0) {
-        pageTurner->nextPage();
-    }
-}
-
 
