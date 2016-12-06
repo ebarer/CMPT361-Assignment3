@@ -127,7 +127,7 @@ void PolygonRenderer::draw_shaded(Polygon p, Drawable* drawable, SimpReader* sim
                 n2 = nt;
             }
 
-            for (int x = x1; x <= x2; x++) {
+            for (int x = x1; x < x2; x++) {
                 QVector3D world = lerpWorld(w1, w2, x, x1, x2);
                 Point po = Point(x, y, world.z(), lerpColor(c1, c2, x, x1, x2));
                 po.setWorld(world);

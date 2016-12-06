@@ -26,20 +26,28 @@ QVector<float> LightingModel::calculateLighting(Point p,
         N.normalize();
         float NL = QVector3D::dotProduct(N, L);
 
-        QVector3D R = (2 * NL * N) - L;
-        R.normalize();
-        QVector3D V = camera - p.getWorld();
-        V.normalize();
-        float ksVR = surface.ks * pow(QVector3D::dotProduct(V, R), surface.alpha);
+        float ksVR = 0;
+        if (NL > 0) {
+            QVector3D R = (2 * NL * N) - L;
+            R.normalize();
+            QVector3D V = camera - p.getWorld();
+            V.normalize();
+            float VR = QVector3D::dotProduct(V, R);
+            ksVR = surface.ks * pow(VR, surface.alpha);
+        }
 
         for (int c = 0; c < 3; c++) {
             float kd = p.getChannels()[c] / 255.0;
             float kdNL = kd * NL;
             float sum = lights[i].colors[c] * fatti * (kdNL + ksVR);
-            intensity[c] += sum;
 
-            // If VAL is < 0 or > 1, set to respective limit, else set to VAL
-            intensity[c] = (intensity[c] > 1) ? 1 : (intensity[c] < 0) ? 0 : intensity[c];
+            // Ensure we don't subtract lighting
+            if (sum > 0) {
+                intensity[c] += sum;
+
+                // If VAL is < 0 or > 1, set to respective limit, else set to VAL
+                intensity[c] = (intensity[c] > 1) ? 1 : (intensity[c] < 0) ? 0 : intensity[c];
+            }
         }
     }
 
